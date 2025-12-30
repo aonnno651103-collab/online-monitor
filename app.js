@@ -1,10 +1,11 @@
-/* app.js - GitHub Pages / Google Sites 安定版（要素が無くても落ちない）
+/* app.js - GitHub Pages / Google Sites 安定版（要素が無くても落ちない＋ダーク背景対応）
  * - out/tosaden_weekday.json / out/tosaden_holiday.json を読み込み
  * - 在線（線路＋列車）をCanvasに描画
  * - UI要素が存在しない場合は自動的にスキップ（addEventListenerで落ちない）
+ * - ダークテーマでも見えるように軸・文字・列車色を明るめに調整
  */
 
-console.log("app.js safe build loaded");
+console.log("app.js safe dark build loaded");
 
 // ====== DOM helpers（null安全） ======
 const $ = (id) => document.getElementById(id);
@@ -39,7 +40,6 @@ const modal = $("modal");
 const modalTitle = $("modalTitle");
 const modalBody = $("modalBody");
 const modalClose = $("modalClose");
-// ※存在しないことがあるので必ずガードする
 const modalJumpNow = $("modalJumpNow");
 
 // ====== Config ======
@@ -48,6 +48,15 @@ const DATA_HOLIDAY_URL = "./out/tosaden_holiday.json";
 
 const TRAIN_R = 12;
 const TRAIN_FONT = "12px sans-serif";
+
+// ダーク背景向けの見える色
+const COLOR_AXIS = "#cfd8dc";      // 主線
+const COLOR_TICK = "#b0bec5";      // 目盛り
+const COLOR_TEXT = "#e8eaed";      // 駅名など
+const COLOR_TRAIN_FILL = "#4ea3ff"; // デフォ列車色
+const COLOR_TRAIN_STROKE = "#e8eaed";
+const COLOR_STOP_MAJOR = "#ff6b6b";
+const COLOR_STOP_NORMAL = "#e8eaed";
 
 // 主要停留場（赤字）
 const MAJOR_STATIONS = [
@@ -86,12 +95,12 @@ function getTodayType(){
 // ====== State ======
 let DATA = null;
 let nowSec = 0;
-let playing = true;  // 画面のボタンが「||」なら最初は再生想定
+let playing = true;    // 初期は再生
 let raf = null;
 
-let baseSpeed = 1;   // 実時間
-let speedMul = 0.5;  // デフォルトx0.5（UIに合わせる）
-let forceType = null; // "weekday" / "holiday" / null
+let baseSpeed = 1;     // 実時間
+let speedMul = 0.5;    // デフォルトx0.5（UIがそうなりがち）
+let forceType = null;  // "weekday" / "holiday" / null
 
 let MAIN_RUNNING = 0;
 let BR_RUNNING = 0;
@@ -166,32 +175,36 @@ function buildLegend(){
 }
 
 // ====== Render primitives ======
-function clear(ctx, w, h){ ctx.clearRect(0,0,w,h); }
+function clear(ctx, w, h){
+  ctx.clearRect(0,0,w,h);
+}
 
 function drawAxis(ctx, axisStations, w, x0, x1, y){
   if(!ctx || !axisStations?.length) return;
 
+  // 軸線（見える色）
   ctx.lineWidth = 4;
-  ctx.strokeStyle = "#999";
+  ctx.strokeStyle = COLOR_AXIS;
   ctx.beginPath();
   ctx.moveTo(x0, y);
   ctx.lineTo(x1, y);
   ctx.stroke();
 
+  // 駅目盛り＆駅名（見える色）
   const n = axisStations.length;
   for(let i=0;i<n;i++){
     const st = axisStations[i];
     const x = x0 + (x1-x0) * (i/(n-1));
 
     ctx.lineWidth = 2;
-    ctx.strokeStyle = "#777";
+    ctx.strokeStyle = COLOR_TICK;
     ctx.beginPath();
     ctx.moveTo(x, y-8);
     ctx.lineTo(x, y+8);
     ctx.stroke();
 
     ctx.font = "14px sans-serif";
-    ctx.fillStyle = "#333";
+    ctx.fillStyle = COLOR_TEXT;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     ctx.fillText(st, x, y+10);
@@ -241,26 +254,29 @@ function drawTripsOnAxis(ctx, axisStations, w, {x0,x1,rowY}, trips, hitProp){
     const x = x0 + (x1-x0) * (p.axisIndex/(n-1));
     const y = rowY;
 
+    // 列車（見える色）
     ctx.beginPath();
-    ctx.fillStyle = tr.color || "#3498db";
-    ctx.strokeStyle = "#1f4e79";
+    ctx.fillStyle = tr.color || COLOR_TRAIN_FILL;
+    ctx.strokeStyle = COLOR_TRAIN_STROKE;
     ctx.lineWidth = 2;
     ctx.arc(x, y, TRAIN_R, 0, Math.PI*2);
     ctx.fill();
     ctx.stroke();
 
+    // ラベル
     const label = tr.label || tr.no || "";
     if(label){
       ctx.font = TRAIN_FONT;
-      ctx.fillStyle = "#111";
+      ctx.fillStyle = "#0b0b0b"; // 塗りが明るいので文字は黒寄りが見やすい
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(label, x, y);
     }
 
+    // 停車駅名
     if(p.stopped && p.atStation){
       ctx.font = "12px sans-serif";
-      ctx.fillStyle = MAJOR_SET.has(normStation(p.atStation)) ? "#d93025" : "#2c3e50";
+      ctx.fillStyle = MAJOR_SET.has(normStation(p.atStation)) ? COLOR_STOP_MAJOR : COLOR_STOP_NORMAL;
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.fillText(p.atStation, x, y-TRAIN_R-6);
@@ -320,7 +336,6 @@ function render(){
 function openModal(trip){
   if(!modalBack || !modal) return;
 
-  // title/body が無い場合は modal 内に作る
   let titleEl = modalTitle;
   let bodyEl = modalBody;
 
@@ -350,6 +365,7 @@ function openModal(trip){
   const table = document.createElement("table");
   table.style.width = "100%";
   table.style.borderCollapse = "collapse";
+
   for(const st of (trip.stops || [])){
     const name = normStation(st.station);
     const arr = st.arrSec != null ? secToClock(st.arrSec) : "";
@@ -365,13 +381,16 @@ function openModal(trip){
     td1.style.padding = "6px 8px";
     td2.style.padding = "6px 8px";
     td2.style.textAlign = "right";
-    td1.style.borderBottom = "1px solid rgba(255,255,255,0.08)";
-    td2.style.borderBottom = "1px solid rgba(255,255,255,0.08)";
+    td1.style.borderBottom = "1px solid rgba(255,255,255,0.12)";
+    td2.style.borderBottom = "1px solid rgba(255,255,255,0.12)";
 
     if(MAJOR_SET.has(name)){
-      td1.style.color = "#ff6b6b";
+      td1.style.color = COLOR_STOP_MAJOR;
       td1.style.fontWeight = "700";
+    }else{
+      td1.style.color = COLOR_TEXT;
     }
+    td2.style.color = COLOR_TEXT;
 
     trEl.appendChild(td1);
     trEl.appendChild(td2);
@@ -487,14 +506,13 @@ qsa("button[data-skip]").forEach(btn=>{
 // 速度ボタン（存在するなら）
 qsa("button.speed[data-speed], .speed[data-speed]").forEach(btn=>{
   btn.addEventListener("click", ()=>{
-    // activeクラスがあるUIなら切替
     qsa("button.speed, .speed").forEach(b=>b.classList?.remove?.("active"));
     btn.classList?.add?.("active");
     speedMul = Number(btn.getAttribute("data-speed") || "1");
   });
 });
 
-// ダイヤ切替（data-typeを使うUIがあれば対応）
+// ダイヤ切替（data-daytypeを使うUIがあれば対応）
 qsa("[data-daytype]").forEach(btn=>{
   btn.addEventListener("click", async ()=>{
     const t = btn.getAttribute("data-daytype"); // "weekday"/"holiday"
