@@ -1,11 +1,7 @@
-console.log("TURNBACK_WAIT_FINAL loaded");
-console.log("RESET_WORKING_BUILD loaded");
-// app.js
-// out/tosaden_weekday.json / out/tosaden_holiday.json を読み込み、時刻を進めて列車位置を表示
+// app.js (Google Sites / GitHub Pages 安定版：index.html に合わせた修正版)
 
 const CV_MAIN = document.getElementById("cvMain");
 const CTX_MAIN = CV_MAIN.getContext("2d");
-
 const CV_BRANCH = document.getElementById("cvBranch");
 const CTX_BRANCH = CV_BRANCH.getContext("2d");
 
@@ -15,92 +11,72 @@ const badgeDayEl = document.getElementById("badgeDay");
 const legendEl = document.getElementById("legend");
 
 const toggleBtn = document.getElementById("toggle");
+const btnNow = document.getElementById("btnNow");
+const btnNow2 = document.getElementById("btnNow2");
+const btnFirst = document.getElementById("btnFirst");
+const btnWeekday = document.getElementById("btnWeekday");
+const btnHoliday = document.getElementById("btnHoliday");
 
-
-// ---- Google Sites / iframe 安定化: Canvas を実表示サイズに合わせる ----
-// CSSでcanvasが伸縮されると「ぼやけ」「クリック位置ずれ」「環境差」が出やすいので、
-// 実際の表示サイズ（getBoundingClientRect）に合わせて canvas の内部解像度を更新する。
-// ※DPRスケールは導入せず、既存の座標系(=canvas内部px)を維持して最小変更で安定化します。
-function fitCanvasToCSS(canvas){
-  const r = canvas.getBoundingClientRect();
-  const w = Math.max(1, Math.round(r.width));
-  const h = Math.max(1, Math.round(r.height));
-  if(canvas.width !== w) canvas.width = w;
-  if(canvas.height !== h) canvas.height = h;
-}
-
-function resizeAll(){
-  // まだDOMに描画されていないタイミングだとrectが0になることがあるのでガード
-  try{
-    fitCanvasToCSS(CV_MAIN);
-    fitCanvasToCSS(CV_BRANCH);
-  }catch(_){}
-  // 既にデータがあるなら即再描画
-  if(typeof render === "function") render();
-}
-window.addEventListener("resize", resizeAll);
-
-
+// modal（index.htmlに合わせる）
 const modalBack = document.getElementById("modalBack");
 const modal = document.getElementById("modal");
 const modalTitle = document.getElementById("modalTitle");
-const modalTable = document.getElementById("modalTable");
+const modalBody = document.getElementById("modalBody");
 const modalClose = document.getElementById("modalClose");
-const modalJumpNow = document.getElementById("modalJumpNow");
 
 // ---- 設定 ----
 const DATA_WEEKDAY_URL = "./out/tosaden_weekday.json";
 const DATA_HOLIDAY_URL = "./out/tosaden_holiday.json";
 
-// 表示する「主要停留場」（モーダルに赤字で表示）
-const MAJOR_STATIONS = [
-  "高知駅前","はりまや橋","県庁前","高知城前","堀詰","宝永町","知寄町","知寄町三丁目",
-  "後免町","後免東町","後免中町","後免西町","領石通","北浦","船戸","篠原","住吉通",
-  "東新木","田辺島通","鹿児","舟戸","デンテツターミナルビル前","高須","県立美術館通",
-  "葛島橋東詰","西高須","県立美術館通","高須","一条橋","梅の辻","枡形","上町一丁目",
-  "上町二丁目","上町四丁目","旭町一丁目","旭町三丁目","鏡川橋","蛍橋","旭駅前通",
-  "旭町三丁目","旭町一丁目","上町四丁目","上町二丁目","上町一丁目","枡形","梅の辻",
-  "はりまや橋","堀詰","高知城前","県庁前","高知駅前","桟橋通五丁目","桟橋通四丁目",
-  "桟橋通三丁目","桟橋通二丁目","桟橋通一丁目"
-];
-
-// 表記揺れをまとめる（必要なら増やす）
-const ST_ALIAS = {
-  "デンテツターミナルビル前": "デンテツターミナルビル前",
-  "電鉄ターミナルビル前": "デンテツターミナルビル前"
-};
-
 // 列車の見た目
 const TRAIN_R = 12;
 const TRAIN_FONT = "12px sans-serif";
 
-// 主要停留場で停車中の列車は縦に並べる（重なり防止）
-const STACK_AT_MAJOR = true;
-const STACK_GAP_PX = 26; // 1両分の縦間隔
-
-// スピード（1秒あたり何秒進むか）
-let speed = 60; // 1秒で1分進む
-
-// ---- 状態 ----
-let DATA = null;
-let nowSec = 0;      // その日の開始からの秒
-let playing = false;
-let raf = null;
-
-let MAIN_RUNNING = 0;
-let BR_RUNNING = 0;
-
-// ---- ユーティリティ ----
+// 主要停留場（赤字）
+const MAJOR_STATIONS = [
+  "高知駅前","はりまや橋","県庁前","高知城前","堀詰","宝永町","知寄町","知寄町三丁目",
+  "後免町","後免東町","後免中町","後免西町","領石通","北浦","船戸","篠原","住吉通",
+  "東新木","田辺島通","鹿児","舟戸","デンテツターミナルビル前","高須","県立美術館通",
+  "葛島橋東詰","西高須","一条橋","梅の辻","枡形","上町一丁目",
+  "上町二丁目","上町四丁目","旭町一丁目","旭町三丁目","鏡川橋","蛍橋","旭駅前通",
+  "桟橋通五丁目","桟橋通四丁目","桟橋通三丁目","桟橋通二丁目","桟橋通一丁目"
+];
+const ST_ALIAS = {
+  "電鉄ターミナルビル前": "デンテツターミナルビル前"
+};
 function normStation(s){
   if(!s) return "";
   const t = String(s).trim();
   return ST_ALIAS[t] || t;
 }
-
-// 正規化後の主要停留場セット（モーダルで赤字）
-const MAJOR_SET = new Set(MAJOR_STATIONS.map(s=>normStation(s)));
+const MAJOR_SET = new Set(MAJOR_STATIONS.map(normStation));
 
 function pad2(n){ return String(n).padStart(2,"0"); }
+function secToClock(sec){
+  sec = Math.floor(sec);
+  const h = Math.floor(sec/3600);
+  const m = Math.floor((sec%3600)/60);
+  const s = sec%60;
+  return `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+}
+function getTodayType(){
+  const d = new Date();
+  const dow = d.getDay(); // 0=Sun
+  return (dow===0 || dow===6) ? "holiday" : "weekday";
+}
+
+// ---- 状態 ----
+let DATA = null;
+let nowSec = 0;
+let playing = true;        // index.htmlのボタンが「❚❚」なので最初は再生に合わせる
+let raf = null;
+
+let baseSpeed = 1;         // x1 = 実時間
+let speedMul = 0.5;        // index.htmlでx0.5がactive想定
+let MAIN_RUNNING = 0;
+let BR_RUNNING = 0;
+
+let forceType = null;      // "weekday" / "holiday" を強制する（null=自動）
 
 function clampNow(){
   if(!DATA) return;
@@ -110,39 +86,46 @@ function clampNow(){
   if(nowSec > s1) nowSec = s1;
 }
 
-function secToClock(sec){
-  sec = Math.floor(sec);
-  const h = Math.floor(sec/3600);
-  const m = Math.floor((sec%3600)/60);
-  const s = sec%60;
-  return `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+function syncToRealTime(){
+  const d = new Date();
+  nowSec = d.getHours()*3600 + d.getMinutes()*60 + d.getSeconds();
+  clampNow();
 }
 
-function getTodayType(){
-  const d = new Date();
-  const dow = d.getDay(); // 0=Sun
-  // 簡易：土日=holiday扱い。祝日は別途判定するなら拡張。
-  return (dow===0 || dow===6) ? "holiday" : "weekday";
+// ---- Canvasを表示サイズに合わせる（ぼやけ/ズレ対策）----
+function fitCanvasToCSS(canvas){
+  const r = canvas.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width));
+  const h = Math.max(1, Math.round(r.height));
+  if(canvas.width !== w) canvas.width = w;
+  if(canvas.height !== h) canvas.height = h;
 }
+function resizeAll(){
+  try{
+    fitCanvasToCSS(CV_MAIN);
+    fitCanvasToCSS(CV_BRANCH);
+  }catch(_){}
+  render();
+}
+window.addEventListener("resize", resizeAll);
 
 // ---- データ読み込み ----
 async function loadData(){
-  const type = getTodayType();
+  const type = forceType || getTodayType();
   const url = (type==="holiday") ? DATA_HOLIDAY_URL : DATA_WEEKDAY_URL;
 
   badgeDayEl.textContent = (type==="holiday") ? "土日祝" : "平日";
   badgeDayEl.className = (type==="holiday") ? "badge holiday" : "badge weekday";
 
   const res = await fetch(url, { cache: "no-store" });
-  if(!res.ok) throw new Error(`fetch failed: ${res.status}`);
+  if(!res.ok) throw new Error(`fetch failed: ${res.status} ${url}`);
   DATA = await res.json();
 
-  // 主要停留場名の正規化
-  if(DATA && Array.isArray(DATA.trips)){
+  // 正規化
+  if(Array.isArray(DATA.trips)){
     for(const tr of DATA.trips){
       tr.from = normStation(tr.from);
       tr.to = normStation(tr.to);
-      tr.via = normStation(tr.via);
       if(Array.isArray(tr.stops)){
         for(const st of tr.stops){
           st.station = normStation(st.station);
@@ -152,42 +135,20 @@ async function loadData(){
   }
 
   buildLegend();
+  clampNow();
 }
 
-// ---- 凡例 ----
 function buildLegend(){
   if(!DATA) return;
   const map = DATA.meta?.routeLegend || {};
   const keys = Object.keys(map);
-  if(keys.length===0){
-    legendEl.textContent = "";
-    return;
-  }
-  const parts = [];
-  for(const k of keys){
-    parts.push(`${k}:${map[k]}`);
-  }
-  legendEl.textContent = parts.join(" / ");
+  legendEl.textContent = keys.length ? keys.map(k=>`${k}:${map[k]}`).join(" / ") : "";
 }
 
-// ---- 時刻同期 ----
-function syncToRealTime(){
-  if(!DATA) return;
-  const d = new Date();
-  const h = d.getHours();
-  const m = d.getMinutes();
-  const s = d.getSeconds();
-  nowSec = h*3600 + m*60 + s;
-  clampNow();
-}
+// ---- 描画 ----
+function clear(ctx, w, h){ ctx.clearRect(0,0,w,h); }
 
-// ---- 描画 helpers ----
-function clear(ctx, w, h){
-  ctx.clearRect(0,0,w,h);
-}
-
-function drawAxis(ctx, axisStations, w, h, x0, x1, y){
-  // 軸線
+function drawAxis(ctx, axisStations, w, x0, x1, y){
   ctx.lineWidth = 4;
   ctx.strokeStyle = "#999";
   ctx.beginPath();
@@ -195,7 +156,6 @@ function drawAxis(ctx, axisStations, w, h, x0, x1, y){
   ctx.lineTo(x1, y);
   ctx.stroke();
 
-  // 駅目盛り
   const n = axisStations.length;
   for(let i=0;i<n;i++){
     const st = axisStations[i];
@@ -216,12 +176,10 @@ function drawAxis(ctx, axisStations, w, h, x0, x1, y){
 }
 
 function interpPos(tr, sec){
-  // tr.stops: [{station, arrSec, depSec, axisIndex}]
-  // 軸上位置は axisIndex を基準に線形補間
   const stops = tr.stops || [];
   if(stops.length===0) return null;
 
-  // 停車中ならその駅に固定
+  // 停車中固定
   for(const st of stops){
     const a = st.arrSec ?? st.timeSec ?? null;
     const d = st.depSec ?? st.timeSec ?? null;
@@ -230,7 +188,7 @@ function interpPos(tr, sec){
     }
   }
 
-  // 区間走行を探す
+  // 走行区間
   for(let i=0;i<stops.length-1;i++){
     const s0 = stops[i];
     const s1 = stops[i+1];
@@ -245,30 +203,18 @@ function interpPos(tr, sec){
       return {axisIndex: p0 + (p1-p0)*r, stopped:false, atStation:null};
     }
   }
-
   return null;
 }
 
-function drawTripsOnAxis(ctx, axisStations, w, h, {x0,x1,rowY,gap}, trips, hitProp){
+function drawTripsOnAxis(ctx, axisStations, w, {x0,x1,rowY}, trips, hitProp){
   let running = 0;
-
-  // 主要停留場で停車している列車を縦積みするためのカウンタ
-  const majorStack = new Map(); // station -> count
-
   for(const tr of trips){
     const p = interpPos(tr, nowSec);
     if(!p) continue;
 
     const n = axisStations.length;
     const x = x0 + (x1-x0) * (p.axisIndex/(n-1));
-
-    // y位置（停車重なり対策）
-    let y = rowY;
-    if(STACK_AT_MAJOR && p.stopped && p.atStation && MAJOR_SET.has(p.atStation)){
-      const c = majorStack.get(p.atStation) || 0;
-      majorStack.set(p.atStation, c+1);
-      y = rowY - (c * STACK_GAP_PX);
-    }
+    const y = rowY;
 
     // 円
     ctx.beginPath();
@@ -289,24 +235,15 @@ function drawTripsOnAxis(ctx, axisStations, w, h, {x0,x1,rowY,gap}, trips, hitPr
       ctx.fillText(label, x, y);
     }
 
-    // 停車中なら薄い帯で強調
-    if(p.stopped){
-      ctx.globalAlpha = 0.18;
-      ctx.fillStyle = "#eaf2ff";
-      ctx.fillRect(x-22, y-22, 44, 44);
-      ctx.globalAlpha = 1.0;
-
-      // 駅名
-      if(p.atStation){
-        ctx.font = "12px sans-serif";
-        ctx.fillStyle = "#2c3e50";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "bottom";
-        ctx.fillText(p.atStation, x, y-TRAIN_R-6);
-      }
+    // 停車中表示
+    if(p.stopped && p.atStation){
+      ctx.font = "12px sans-serif";
+      ctx.fillStyle = "#2c3e50";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(p.atStation, x, y-TRAIN_R-6);
     }
 
-    // クリック判定用のヒット領域
     tr[hitProp] = {x, y, r: TRAIN_R + 8};
     running++;
   }
@@ -316,126 +253,91 @@ function drawTripsOnAxis(ctx, axisStations, w, h, {x0,x1,rowY,gap}, trips, hitPr
 function renderMain(){
   const w = CV_MAIN.width, h = CV_MAIN.height;
   clear(CTX_MAIN, w, h);
-
   if(!DATA) return;
-
-  // 背景
-  CTX_MAIN.fillStyle = "rgba(0,0,0,0)";
-  CTX_MAIN.fillRect(0,0,w,h);
 
   const axis = DATA.meta.axisStations.main || [];
   const y = Math.round(h*0.58);
-
-  drawAxis(CTX_MAIN, axis, w, h, 80, w-80, y);
+  drawAxis(CTX_MAIN, axis, w, 80, w-80, y);
 
   const trips = (DATA.displayTrips || DATA.trips || []).filter(t=>t.route==="main");
-  MAIN_RUNNING = drawTripsOnAxis(
-    CTX_MAIN,
-    axis, w, h,
-    {x0:80, x1:w-80, rowY:y-40, gap:0},
-    trips,
-    "_hit"
-  );
+  MAIN_RUNNING = drawTripsOnAxis(CTX_MAIN, axis, w, {x0:80, x1:w-80, rowY:y-40}, trips, "_hit");
 }
 
 function renderBranch(){
   const w = CV_BRANCH.width, h = CV_BRANCH.height;
   clear(CTX_BRANCH, w, h);
-
   if(!DATA) return;
 
   const axis = DATA.meta.axisStations.branch || [];
   const yMid = Math.round(h*0.58);
   const gap = 52;
 
-  // 枝線 2本
-  drawAxis(CTX_BRANCH, axis, w, h, 80, w-80, yMid - gap);
-  drawAxis(CTX_BRANCH, axis, w, h, 80, w-80, yMid + gap);
+  drawAxis(CTX_BRANCH, axis, w, 80, w-80, yMid-gap);
+  drawAxis(CTX_BRANCH, axis, w, 80, w-80, yMid+gap);
 
   const tripsUp = (DATA.displayTrips || DATA.trips || []).filter(t=>t.route==="branch_up");
   const tripsDn = (DATA.displayTrips || DATA.trips || []).filter(t=>t.route==="branch_dn");
 
-  const r1 = drawTripsOnAxis(
-    CTX_BRANCH,
-    axis, w, h,
-    {x0:80, x1:w-80, rowY:(yMid - gap)-40, gap:0},
-    tripsUp,
-    "_hit_branch"
-  );
-  const r2 = drawTripsOnAxis(
-    CTX_BRANCH,
-    axis, w, h,
-    {x0:80, x1:w-80, rowY:(yMid + gap)-40, gap:0},
-    tripsDn,
-    "_hit_branch"
-  );
+  const r1 = drawTripsOnAxis(CTX_BRANCH, axis, w, {x0:80, x1:w-80, rowY:(yMid-gap)-40}, tripsUp, "_hit_branch");
+  const r2 = drawTripsOnAxis(CTX_BRANCH, axis, w, {x0:80, x1:w-80, rowY:(yMid+gap)-40}, tripsDn, "_hit_branch");
   BR_RUNNING = r1 + r2;
 }
 
 function render(){
-  if(!DATA) return;
+  if(!clockEl || !runningCountEl) return;
   clockEl.textContent = secToClock(nowSec);
   renderMain();
   renderBranch();
   runningCountEl.textContent = String((MAIN_RUNNING||0) + (BR_RUNNING||0));
 }
 
-// ---- タップで主要駅時刻表 ----
-function isMajorStop(stName){
-  return MAJOR_SET.has(normStation(stName));
-}
-
-function makeRow(label, v, isMajor){
-  const tr = document.createElement("tr");
-  if(isMajor) tr.classList.add("major");
-  const td1 = document.createElement("td");
-  const td2 = document.createElement("td");
-  td1.textContent = label;
-  td2.textContent = v;
-  tr.appendChild(td1);
-  tr.appendChild(td2);
-  return tr;
-}
+// ---- モーダル ----
+function isMajorStop(name){ return MAJOR_SET.has(normStation(name)); }
 
 function showModal(trip){
+  if(!modal || !modalBack || !modalBody) return;
+
   modalTitle.textContent = trip.name || trip.label || trip.no || "列車";
-  while(modalTable.firstChild) modalTable.removeChild(modalTable.firstChild);
+  modalBody.innerHTML = "";
 
-  // 現在位置と近傍
   const p = interpPos(trip, nowSec);
-  if(p){
-    modalTable.appendChild(makeRow("現在", p.stopped ? `停車中: ${p.atStation||""}` : "走行中", false));
-  }
+  const pDiv = document.createElement("div");
+  pDiv.className = "row";
+  pDiv.textContent = p ? (p.stopped ? `停車中：${p.atStation||""}` : "走行中") : "情報なし";
+  modalBody.appendChild(pDiv);
 
-  // 停留場時刻表
-  const stops = trip.stops || [];
-  for(const st of stops){
+  const table = document.createElement("table");
+  table.className = "tbl";
+  for(const st of (trip.stops || [])){
     const name = normStation(st.station);
     const arr = st.arrSec != null ? secToClock(st.arrSec) : "";
     const dep = st.depSec != null ? secToClock(st.depSec) : "";
-    let txt = "";
-    if(arr && dep && arr!==dep) txt = `${arr} / ${dep}`;
-    else txt = arr || dep || "";
+    const txt = (arr && dep && arr!==dep) ? `${arr} / ${dep}` : (arr || dep || "");
 
-    modalTable.appendChild(makeRow(name, txt, isMajorStop(name)));
+    const tr = document.createElement("tr");
+    if(isMajorStop(name)) tr.classList.add("major");
+    const td1 = document.createElement("td");
+    const td2 = document.createElement("td");
+    td1.textContent = name;
+    td2.textContent = txt;
+    tr.appendChild(td1); tr.appendChild(td2);
+    table.appendChild(tr);
   }
+  modalBody.appendChild(table);
 
-  modalBack.classList.add("show");
+  modalBack.hidden = false;
+  modal.hidden = false;
 }
-
 function closeModal(){
-  modalBack.classList.remove("show");
+  if(modalBack) modalBack.hidden = true;
+  if(modal) modal.hidden = true;
 }
-
-modalBack.addEventListener("click", (e)=>{
-  if(e.target === modalBack) closeModal();
-});
-modalClose.addEventListener("click", closeModal);
-
-modalJumpNow.addEventListener("click", ()=>{
-  syncToRealTime();
-  render();
-});
+if(modalBack){
+  modalBack.addEventListener("click", (e)=>{ if(e.target===modalBack) closeModal(); });
+}
+if(modalClose){
+  modalClose.addEventListener("click", closeModal);
+}
 
 // ---- クリック判定 ----
 function hitTest(tr, mx, my, mode){
@@ -450,7 +352,7 @@ CV_MAIN.addEventListener("click", (e)=>{
   const r = CV_MAIN.getBoundingClientRect();
   const mx = (e.clientX - r.left) * (CV_MAIN.width / r.width);
   const my = (e.clientY - r.top) * (CV_MAIN.height / r.height);
-  for(const tr of (DATA.displayTrips || DATA.trips)){
+  for(const tr of (DATA.displayTrips || DATA.trips || [])){
     if(hitTest(tr, mx, my, "main")){
       showModal(tr);
       return;
@@ -463,7 +365,7 @@ CV_BRANCH.addEventListener("click", (e)=>{
   const r = CV_BRANCH.getBoundingClientRect();
   const mx = (e.clientX - r.left) * (CV_BRANCH.width / r.width);
   const my = (e.clientY - r.top) * (CV_BRANCH.height / r.height);
-  for(const tr of (DATA.displayTrips || DATA.trips)){
+  for(const tr of (DATA.displayTrips || DATA.trips || [])){
     if(hitTest(tr, mx, my, "branch")){
       showModal(tr);
       return;
@@ -471,12 +373,64 @@ CV_BRANCH.addEventListener("click", (e)=>{
   }
 });
 
-// ---- 再生/停止 ----
+// ---- UI：再生/停止 ----
+function updatePlayButton(){
+  toggleBtn.textContent = playing ? "❚❚" : "▶";
+}
+updatePlayButton();
+
 toggleBtn.addEventListener("click", ()=>{
   playing = !playing;
-  toggleBtn.textContent = playing ? "⏸" : "▶";
+  updatePlayButton();
 });
 
+// ---- UI：現在へ ----
+function jumpNow(){
+  syncToRealTime();
+  render();
+}
+btnNow?.addEventListener("click", jumpNow);
+btnNow2?.addEventListener("click", jumpNow);
+
+// ---- UI：始発へ ----
+btnFirst?.addEventListener("click", ()=>{
+  if(!DATA) return;
+  nowSec = DATA.meta.serviceStartSec;
+  render();
+});
+
+// ---- UI：スキップ ----
+document.querySelectorAll("button[data-skip]").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    const v = Number(btn.getAttribute("data-skip") || "0");
+    nowSec += v;
+    clampNow();
+    render();
+  });
+});
+
+// ---- UI：速度 ----
+document.querySelectorAll("button.speed[data-speed]").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    document.querySelectorAll("button.speed").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    speedMul = Number(btn.getAttribute("data-speed") || "1");
+  });
+});
+
+// ---- UI：平日/土日祝切替 ----
+btnWeekday?.addEventListener("click", async ()=>{
+  forceType = "weekday";
+  await loadData();
+  render();
+});
+btnHoliday?.addEventListener("click", async ()=>{
+  forceType = "holiday";
+  await loadData();
+  render();
+});
+
+// ---- ループ ----
 let lastTs = null;
 function loop(ts){
   if(lastTs==null) lastTs = ts;
@@ -484,37 +438,35 @@ function loop(ts){
   lastTs = ts;
 
   if(playing && DATA){
-    // dtは1フレームで約0.016秒。ここでMath.floorすると speed<60 だと一生進まない。
-    // 小数のまま積算し、表示は secToClock() で整数化する。
-    nowSec = nowSec + dt * speed;
+    const sp = baseSpeed * speedMul; // x1=実時間
+    nowSec += dt * sp;
     clampNow();
     render();
   }
-
   raf = requestAnimationFrame(loop);
 }
 
 (async function init(){
-  await loadData();
-  // 起動直後は「現在時刻に同期」して停止しておく（好みで）
-  syncToRealTime();
-  playing = false;
-  toggleBtn.textContent = "▶";
+  try{
+    await loadData();
+    syncToRealTime();
+    resizeAll();
+    render();
+    raf = requestAnimationFrame(loop);
 
-  // iframe/Google Sitesでもレイアウトに合わせて描画する
-  resizeAll();
-  raf = requestAnimationFrame(loop);
-
-  // ---- Google Sites / iframe 対策: rAFが間引かれても最低限動かす保険 ----
-  // タブ非アクティブや埋め込み環境でrequestAnimationFrameが極端に遅くなることがあるため、
-  // playing中は1秒に1回だけ「進めて描画」するフォールバックを入れる。
-  setInterval(() => {
-    try{
+    // iframe/バックグラウンドでrAFが間引かれても最低限進める保険
+    setInterval(() => {
       if(!DATA) return;
       if(!playing) return;
-      nowSec = nowSec + 1 * speed;
+      const sp = baseSpeed * speedMul;
+      nowSec += 1 * sp;
       clampNow();
       render();
-    }catch(_){ /* 何もしない */ }
-  }, 1000);
+    }, 1000);
+
+  }catch(err){
+    console.error(err);
+    // 画面にも最低限出す
+    if(legendEl) legendEl.textContent = "データ読み込み失敗: " + String(err?.message || err);
+  }
 })();
