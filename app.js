@@ -1,34 +1,51 @@
-// app.js (Google Sites / GitHub Pages 安定版：index.html に合わせた修正版)
+/* app.js - GitHub Pages / Google Sites 安定版（要素が無くても落ちない）
+ * - out/tosaden_weekday.json / out/tosaden_holiday.json を読み込み
+ * - 在線（線路＋列車）をCanvasに描画
+ * - UI要素が存在しない場合は自動的にスキップ（addEventListenerで落ちない）
+ */
 
-const CV_MAIN = document.getElementById("cvMain");
-const CTX_MAIN = CV_MAIN.getContext("2d");
-const CV_BRANCH = document.getElementById("cvBranch");
-const CTX_BRANCH = CV_BRANCH.getContext("2d");
+console.log("app.js safe build loaded");
 
-const clockEl = document.getElementById("clock");
-const runningCountEl = document.getElementById("runningCount");
-const badgeDayEl = document.getElementById("badgeDay");
-const legendEl = document.getElementById("legend");
+// ====== DOM helpers（null安全） ======
+const $ = (id) => document.getElementById(id);
+const on = (id, ev, fn) => {
+  const el = $(id);
+  if (el) el.addEventListener(ev, fn);
+  return el;
+};
+const qsa = (sel) => Array.from(document.querySelectorAll(sel));
 
-const toggleBtn = document.getElementById("toggle");
-const btnNow = document.getElementById("btnNow");
-const btnNow2 = document.getElementById("btnNow2");
-const btnFirst = document.getElementById("btnFirst");
-const btnWeekday = document.getElementById("btnWeekday");
-const btnHoliday = document.getElementById("btnHoliday");
+// ====== Elements（無ければnullのまま） ======
+const CV_MAIN = $("cvMain");
+const CV_BRANCH = $("cvBranch");
+const CTX_MAIN = CV_MAIN?.getContext?.("2d") || null;
+const CTX_BRANCH = CV_BRANCH?.getContext?.("2d") || null;
 
-// modal（index.htmlに合わせる）
-const modalBack = document.getElementById("modalBack");
-const modal = document.getElementById("modal");
-const modalTitle = document.getElementById("modalTitle");
-const modalBody = document.getElementById("modalBody");
-const modalClose = document.getElementById("modalClose");
+const clockEl = $("clock");
+const runningCountEl = $("runningCount");
+const badgeDayEl = $("badgeDay");
+const legendEl = $("legend");
 
-// ---- 設定 ----
+const toggleBtn = $("toggle");
+const btnNow = $("btnNow");
+const btnNow2 = $("btnNow2");
+const btnFirst = $("btnFirst");
+const btnWeekday = $("btnWeekday");
+const btnHoliday = $("btnHoliday");
+
+// modal（index側の構造差を吸収）
+const modalBack = $("modalBack");
+const modal = $("modal");
+const modalTitle = $("modalTitle");
+const modalBody = $("modalBody");
+const modalClose = $("modalClose");
+// ※存在しないことがあるので必ずガードする
+const modalJumpNow = $("modalJumpNow");
+
+// ====== Config ======
 const DATA_WEEKDAY_URL = "./out/tosaden_weekday.json";
 const DATA_HOLIDAY_URL = "./out/tosaden_holiday.json";
 
-// 列車の見た目
 const TRAIN_R = 12;
 const TRAIN_FONT = "12px sans-serif";
 
@@ -44,6 +61,7 @@ const MAJOR_STATIONS = [
 const ST_ALIAS = {
   "電鉄ターミナルビル前": "デンテツターミナルビル前"
 };
+
 function normStation(s){
   if(!s) return "";
   const t = String(s).trim();
@@ -65,35 +83,22 @@ function getTodayType(){
   return (dow===0 || dow===6) ? "holiday" : "weekday";
 }
 
-// ---- 状態 ----
+// ====== State ======
 let DATA = null;
 let nowSec = 0;
-let playing = true;        // index.htmlのボタンが「❚❚」なので最初は再生に合わせる
+let playing = true;  // 画面のボタンが「||」なら最初は再生想定
 let raf = null;
 
-let baseSpeed = 1;         // x1 = 実時間
-let speedMul = 0.5;        // index.htmlでx0.5がactive想定
+let baseSpeed = 1;   // 実時間
+let speedMul = 0.5;  // デフォルトx0.5（UIに合わせる）
+let forceType = null; // "weekday" / "holiday" / null
+
 let MAIN_RUNNING = 0;
 let BR_RUNNING = 0;
 
-let forceType = null;      // "weekday" / "holiday" を強制する（null=自動）
-
-function clampNow(){
-  if(!DATA) return;
-  const s0 = DATA.meta.serviceStartSec;
-  const s1 = DATA.meta.serviceEndSec;
-  if(nowSec < s0) nowSec = s0;
-  if(nowSec > s1) nowSec = s1;
-}
-
-function syncToRealTime(){
-  const d = new Date();
-  nowSec = d.getHours()*3600 + d.getMinutes()*60 + d.getSeconds();
-  clampNow();
-}
-
-// ---- Canvasを表示サイズに合わせる（ぼやけ/ズレ対策）----
+// ====== Safety: canvas resize to CSS size ======
 function fitCanvasToCSS(canvas){
+  if(!canvas) return;
   const r = canvas.getBoundingClientRect();
   const w = Math.max(1, Math.round(r.width));
   const h = Math.max(1, Math.round(r.height));
@@ -109,20 +114,36 @@ function resizeAll(){
 }
 window.addEventListener("resize", resizeAll);
 
-// ---- データ読み込み ----
+// ====== Data ======
+function clampNow(){
+  if(!DATA?.meta) return;
+  const s0 = DATA.meta.serviceStartSec ?? 0;
+  const s1 = DATA.meta.serviceEndSec ?? 24*3600-1;
+  if(nowSec < s0) nowSec = s0;
+  if(nowSec > s1) nowSec = s1;
+}
+
+function syncToRealTime(){
+  const d = new Date();
+  nowSec = d.getHours()*3600 + d.getMinutes()*60 + d.getSeconds();
+  clampNow();
+}
+
 async function loadData(){
   const type = forceType || getTodayType();
   const url = (type==="holiday") ? DATA_HOLIDAY_URL : DATA_WEEKDAY_URL;
 
-  badgeDayEl.textContent = (type==="holiday") ? "土日祝" : "平日";
-  badgeDayEl.className = (type==="holiday") ? "badge holiday" : "badge weekday";
+  if(badgeDayEl){
+    badgeDayEl.textContent = (type==="holiday") ? "土日祝" : "平日";
+    badgeDayEl.className = (type==="holiday") ? "badge holiday" : "badge weekday";
+  }
 
   const res = await fetch(url, { cache: "no-store" });
   if(!res.ok) throw new Error(`fetch failed: ${res.status} ${url}`);
   DATA = await res.json();
 
   // 正規化
-  if(Array.isArray(DATA.trips)){
+  if(Array.isArray(DATA?.trips)){
     for(const tr of DATA.trips){
       tr.from = normStation(tr.from);
       tr.to = normStation(tr.to);
@@ -133,22 +154,23 @@ async function loadData(){
       }
     }
   }
-
   buildLegend();
   clampNow();
 }
 
 function buildLegend(){
-  if(!DATA) return;
-  const map = DATA.meta?.routeLegend || {};
+  if(!legendEl) return;
+  const map = DATA?.meta?.routeLegend || {};
   const keys = Object.keys(map);
   legendEl.textContent = keys.length ? keys.map(k=>`${k}:${map[k]}`).join(" / ") : "";
 }
 
-// ---- 描画 ----
+// ====== Render primitives ======
 function clear(ctx, w, h){ ctx.clearRect(0,0,w,h); }
 
 function drawAxis(ctx, axisStations, w, x0, x1, y){
+  if(!ctx || !axisStations?.length) return;
+
   ctx.lineWidth = 4;
   ctx.strokeStyle = "#999";
   ctx.beginPath();
@@ -160,6 +182,7 @@ function drawAxis(ctx, axisStations, w, x0, x1, y){
   for(let i=0;i<n;i++){
     const st = axisStations[i];
     const x = x0 + (x1-x0) * (i/(n-1));
+
     ctx.lineWidth = 2;
     ctx.strokeStyle = "#777";
     ctx.beginPath();
@@ -176,7 +199,7 @@ function drawAxis(ctx, axisStations, w, x0, x1, y){
 }
 
 function interpPos(tr, sec){
-  const stops = tr.stops || [];
+  const stops = tr?.stops || [];
   if(stops.length===0) return null;
 
   // 停車中固定
@@ -207,7 +230,9 @@ function interpPos(tr, sec){
 }
 
 function drawTripsOnAxis(ctx, axisStations, w, {x0,x1,rowY}, trips, hitProp){
+  if(!ctx || !axisStations?.length) return 0;
   let running = 0;
+
   for(const tr of trips){
     const p = interpPos(tr, nowSec);
     if(!p) continue;
@@ -216,7 +241,6 @@ function drawTripsOnAxis(ctx, axisStations, w, {x0,x1,rowY}, trips, hitProp){
     const x = x0 + (x1-x0) * (p.axisIndex/(n-1));
     const y = rowY;
 
-    // 円
     ctx.beginPath();
     ctx.fillStyle = tr.color || "#3498db";
     ctx.strokeStyle = "#1f4e79";
@@ -225,7 +249,6 @@ function drawTripsOnAxis(ctx, axisStations, w, {x0,x1,rowY}, trips, hitProp){
     ctx.fill();
     ctx.stroke();
 
-    // ラベル
     const label = tr.label || tr.no || "";
     if(label){
       ctx.font = TRAIN_FONT;
@@ -235,27 +258,28 @@ function drawTripsOnAxis(ctx, axisStations, w, {x0,x1,rowY}, trips, hitProp){
       ctx.fillText(label, x, y);
     }
 
-    // 停車中表示
     if(p.stopped && p.atStation){
       ctx.font = "12px sans-serif";
-      ctx.fillStyle = "#2c3e50";
+      ctx.fillStyle = MAJOR_SET.has(normStation(p.atStation)) ? "#d93025" : "#2c3e50";
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.fillText(p.atStation, x, y-TRAIN_R-6);
     }
 
-    tr[hitProp] = {x, y, r: TRAIN_R + 8};
+    tr[hitProp] = {x, y, r: TRAIN_R + 10};
     running++;
   }
   return running;
 }
 
 function renderMain(){
+  if(!CTX_MAIN || !CV_MAIN || !DATA) return;
   const w = CV_MAIN.width, h = CV_MAIN.height;
   clear(CTX_MAIN, w, h);
-  if(!DATA) return;
 
-  const axis = DATA.meta.axisStations.main || [];
+  const axis = DATA?.meta?.axisStations?.main || [];
+  if(axis.length === 0) return;
+
   const y = Math.round(h*0.58);
   drawAxis(CTX_MAIN, axis, w, 80, w-80, y);
 
@@ -264,11 +288,13 @@ function renderMain(){
 }
 
 function renderBranch(){
+  if(!CTX_BRANCH || !CV_BRANCH || !DATA) return;
   const w = CV_BRANCH.width, h = CV_BRANCH.height;
   clear(CTX_BRANCH, w, h);
-  if(!DATA) return;
 
-  const axis = DATA.meta.axisStations.branch || [];
+  const axis = DATA?.meta?.axisStations?.branch || [];
+  if(axis.length === 0) return;
+
   const yMid = Math.round(h*0.58);
   const gap = 52;
 
@@ -284,62 +310,89 @@ function renderBranch(){
 }
 
 function render(){
-  if(!clockEl || !runningCountEl) return;
-  clockEl.textContent = secToClock(nowSec);
+  if(clockEl) clockEl.textContent = secToClock(nowSec);
   renderMain();
   renderBranch();
-  runningCountEl.textContent = String((MAIN_RUNNING||0) + (BR_RUNNING||0));
+  if(runningCountEl) runningCountEl.textContent = String((MAIN_RUNNING||0) + (BR_RUNNING||0));
 }
 
-// ---- モーダル ----
-function isMajorStop(name){ return MAJOR_SET.has(normStation(name)); }
+// ====== Modal (柔軟対応) ======
+function openModal(trip){
+  if(!modalBack || !modal) return;
 
-function showModal(trip){
-  if(!modal || !modalBack || !modalBody) return;
+  // title/body が無い場合は modal 内に作る
+  let titleEl = modalTitle;
+  let bodyEl = modalBody;
 
-  modalTitle.textContent = trip.name || trip.label || trip.no || "列車";
-  modalBody.innerHTML = "";
+  if(!titleEl){
+    titleEl = document.createElement("div");
+    titleEl.id = "modalTitle";
+    titleEl.style.fontSize = "18px";
+    titleEl.style.fontWeight = "700";
+    titleEl.style.marginBottom = "8px";
+    modal.appendChild(titleEl);
+  }
+  if(!bodyEl){
+    bodyEl = document.createElement("div");
+    bodyEl.id = "modalBody";
+    modal.appendChild(bodyEl);
+  }
+
+  titleEl.textContent = trip.name || trip.label || trip.no || "列車";
+  bodyEl.innerHTML = "";
 
   const p = interpPos(trip, nowSec);
   const pDiv = document.createElement("div");
-  pDiv.className = "row";
   pDiv.textContent = p ? (p.stopped ? `停車中：${p.atStation||""}` : "走行中") : "情報なし";
-  modalBody.appendChild(pDiv);
+  pDiv.style.marginBottom = "10px";
+  bodyEl.appendChild(pDiv);
 
   const table = document.createElement("table");
-  table.className = "tbl";
+  table.style.width = "100%";
+  table.style.borderCollapse = "collapse";
   for(const st of (trip.stops || [])){
     const name = normStation(st.station);
     const arr = st.arrSec != null ? secToClock(st.arrSec) : "";
     const dep = st.depSec != null ? secToClock(st.depSec) : "";
     const txt = (arr && dep && arr!==dep) ? `${arr} / ${dep}` : (arr || dep || "");
 
-    const tr = document.createElement("tr");
-    if(isMajorStop(name)) tr.classList.add("major");
+    const trEl = document.createElement("tr");
     const td1 = document.createElement("td");
     const td2 = document.createElement("td");
     td1.textContent = name;
     td2.textContent = txt;
-    tr.appendChild(td1); tr.appendChild(td2);
-    table.appendChild(tr);
+
+    td1.style.padding = "6px 8px";
+    td2.style.padding = "6px 8px";
+    td2.style.textAlign = "right";
+    td1.style.borderBottom = "1px solid rgba(255,255,255,0.08)";
+    td2.style.borderBottom = "1px solid rgba(255,255,255,0.08)";
+
+    if(MAJOR_SET.has(name)){
+      td1.style.color = "#ff6b6b";
+      td1.style.fontWeight = "700";
+    }
+
+    trEl.appendChild(td1);
+    trEl.appendChild(td2);
+    table.appendChild(trEl);
   }
-  modalBody.appendChild(table);
+  bodyEl.appendChild(table);
 
   modalBack.hidden = false;
   modal.hidden = false;
 }
+
 function closeModal(){
   if(modalBack) modalBack.hidden = true;
   if(modal) modal.hidden = true;
 }
-if(modalBack){
-  modalBack.addEventListener("click", (e)=>{ if(e.target===modalBack) closeModal(); });
-}
-if(modalClose){
-  modalClose.addEventListener("click", closeModal);
-}
 
-// ---- クリック判定 ----
+modalBack?.addEventListener("click", (e)=>{ if(e.target===modalBack) closeModal(); });
+modalClose?.addEventListener("click", closeModal);
+modalJumpNow?.addEventListener("click", ()=>{ syncToRealTime(); render(); });
+
+// ====== Hit test ======
 function hitTest(tr, mx, my, mode){
   const h = (mode==="branch") ? tr._hit_branch : tr._hit;
   if(!h) return false;
@@ -347,44 +400,44 @@ function hitTest(tr, mx, my, mode){
   return (dx*dx + dy*dy) <= (h.r*h.r);
 }
 
-CV_MAIN.addEventListener("click", (e)=>{
-  if(!DATA) return;
+CV_MAIN?.addEventListener("click", (e)=>{
+  if(!DATA || !CV_MAIN) return;
   const r = CV_MAIN.getBoundingClientRect();
-  const mx = (e.clientX - r.left) * (CV_MAIN.width / r.width);
-  const my = (e.clientY - r.top) * (CV_MAIN.height / r.height);
+  const mx = (e.clientX - r.left) * (CV_MAIN.width / Math.max(1, r.width));
+  const my = (e.clientY - r.top) * (CV_MAIN.height / Math.max(1, r.height));
   for(const tr of (DATA.displayTrips || DATA.trips || [])){
     if(hitTest(tr, mx, my, "main")){
-      showModal(tr);
+      openModal(tr);
       return;
     }
   }
 });
 
-CV_BRANCH.addEventListener("click", (e)=>{
-  if(!DATA) return;
+CV_BRANCH?.addEventListener("click", (e)=>{
+  if(!DATA || !CV_BRANCH) return;
   const r = CV_BRANCH.getBoundingClientRect();
-  const mx = (e.clientX - r.left) * (CV_BRANCH.width / r.width);
-  const my = (e.clientY - r.top) * (CV_BRANCH.height / r.height);
+  const mx = (e.clientX - r.left) * (CV_BRANCH.width / Math.max(1, r.width));
+  const my = (e.clientY - r.top) * (CV_BRANCH.height / Math.max(1, r.height));
   for(const tr of (DATA.displayTrips || DATA.trips || [])){
     if(hitTest(tr, mx, my, "branch")){
-      showModal(tr);
+      openModal(tr);
       return;
     }
   }
 });
 
-// ---- UI：再生/停止 ----
+// ====== UI wiring（存在するものだけ） ======
 function updatePlayButton(){
+  if(!toggleBtn) return;
   toggleBtn.textContent = playing ? "❚❚" : "▶";
 }
 updatePlayButton();
 
-toggleBtn.addEventListener("click", ()=>{
+toggleBtn?.addEventListener("click", ()=>{
   playing = !playing;
   updatePlayButton();
 });
 
-// ---- UI：現在へ ----
 function jumpNow(){
   syncToRealTime();
   render();
@@ -392,15 +445,37 @@ function jumpNow(){
 btnNow?.addEventListener("click", jumpNow);
 btnNow2?.addEventListener("click", jumpNow);
 
-// ---- UI：始発へ ----
 btnFirst?.addEventListener("click", ()=>{
-  if(!DATA) return;
-  nowSec = DATA.meta.serviceStartSec;
+  if(!DATA?.meta) return;
+  nowSec = DATA.meta.serviceStartSec ?? 0;
+  clampNow();
   render();
 });
 
-// ---- UI：スキップ ----
-document.querySelectorAll("button[data-skip]").forEach(btn=>{
+btnWeekday?.addEventListener("click", async ()=>{
+  try{
+    forceType = "weekday";
+    await loadData();
+    render();
+  }catch(err){
+    console.error(err);
+    if(legendEl) legendEl.textContent = "平日データ読み込み失敗: " + (err?.message || err);
+  }
+});
+
+btnHoliday?.addEventListener("click", async ()=>{
+  try{
+    forceType = "holiday";
+    await loadData();
+    render();
+  }catch(err){
+    console.error(err);
+    if(legendEl) legendEl.textContent = "土日祝データ読み込み失敗: " + (err?.message || err);
+  }
+});
+
+// data-skip ボタン（存在するなら）
+qsa("button[data-skip]").forEach(btn=>{
   btn.addEventListener("click", ()=>{
     const v = Number(btn.getAttribute("data-skip") || "0");
     nowSec += v;
@@ -409,28 +484,32 @@ document.querySelectorAll("button[data-skip]").forEach(btn=>{
   });
 });
 
-// ---- UI：速度 ----
-document.querySelectorAll("button.speed[data-speed]").forEach(btn=>{
+// 速度ボタン（存在するなら）
+qsa("button.speed[data-speed], .speed[data-speed]").forEach(btn=>{
   btn.addEventListener("click", ()=>{
-    document.querySelectorAll("button.speed").forEach(b=>b.classList.remove("active"));
-    btn.classList.add("active");
+    // activeクラスがあるUIなら切替
+    qsa("button.speed, .speed").forEach(b=>b.classList?.remove?.("active"));
+    btn.classList?.add?.("active");
     speedMul = Number(btn.getAttribute("data-speed") || "1");
   });
 });
 
-// ---- UI：平日/土日祝切替 ----
-btnWeekday?.addEventListener("click", async ()=>{
-  forceType = "weekday";
-  await loadData();
-  render();
-});
-btnHoliday?.addEventListener("click", async ()=>{
-  forceType = "holiday";
-  await loadData();
-  render();
+// ダイヤ切替（data-typeを使うUIがあれば対応）
+qsa("[data-daytype]").forEach(btn=>{
+  btn.addEventListener("click", async ()=>{
+    const t = btn.getAttribute("data-daytype"); // "weekday"/"holiday"
+    if(t !== "weekday" && t !== "holiday") return;
+    try{
+      forceType = t;
+      await loadData();
+      render();
+    }catch(err){
+      console.error(err);
+    }
+  });
 });
 
-// ---- ループ ----
+// ====== Main loop ======
 let lastTs = null;
 function loop(ts){
   if(lastTs==null) lastTs = ts;
@@ -438,7 +517,7 @@ function loop(ts){
   lastTs = ts;
 
   if(playing && DATA){
-    const sp = baseSpeed * speedMul; // x1=実時間
+    const sp = baseSpeed * speedMul;
     nowSec += dt * sp;
     clampNow();
     render();
@@ -446,6 +525,19 @@ function loop(ts){
   raf = requestAnimationFrame(loop);
 }
 
+// rAFが間引かれる環境（iframe等）用の保険
+setInterval(() => {
+  try{
+    if(!DATA) return;
+    if(!playing) return;
+    const sp = baseSpeed * speedMul;
+    nowSec += 1 * sp;
+    clampNow();
+    render();
+  }catch(_){}
+}, 1000);
+
+// ====== Init ======
 (async function init(){
   try{
     await loadData();
@@ -453,20 +545,8 @@ function loop(ts){
     resizeAll();
     render();
     raf = requestAnimationFrame(loop);
-
-    // iframe/バックグラウンドでrAFが間引かれても最低限進める保険
-    setInterval(() => {
-      if(!DATA) return;
-      if(!playing) return;
-      const sp = baseSpeed * speedMul;
-      nowSec += 1 * sp;
-      clampNow();
-      render();
-    }, 1000);
-
   }catch(err){
     console.error(err);
-    // 画面にも最低限出す
-    if(legendEl) legendEl.textContent = "データ読み込み失敗: " + String(err?.message || err);
+    if(legendEl) legendEl.textContent = "データ読み込み失敗: " + (err?.message || err);
   }
 })();
