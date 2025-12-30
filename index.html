@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>とさでん交通 指令所モニタ</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="lineTitle">とさでん交通 指令所モニタ</div>
+    <div class="badge" id="badgeDay">平日</div>
+
+    <button id="btnNow" class="clockBtn" type="button" title="現在時刻へ同期">
+      <span id="clock">00:00</span>
+    </button>
+
+    <div class="running">走行中：<span id="runningCount">--</span>本</div>
+  </header>
+
+  <section class="controls">
+    <div class="row">
+      <button class="btn" type="button" data-skip="-3600">-1h</button>
+      <button class="btn" type="button" data-skip="-600">-10m</button>
+      <button class="btn" type="button" data-skip="-60">-1m</button>
+      <button class="btn" type="button" data-skip="-10">-10s</button>
+
+      <button class="btn play" id="toggle" type="button">❚❚</button>
+
+      <button class="btn" type="button" data-skip="10">+10s</button>
+      <button class="btn" type="button" data-skip="60">+1m</button>
+      <button class="btn" type="button" data-skip="600">+10m</button>
+      <button class="btn" type="button" data-skip="3600">+1h</button>
+
+      <span class="sep"></span>
+
+      <button class="btn" id="btnFirst" type="button">始発</button>
+      <button class="btn" id="btnNow2" type="button" title="現在時刻へ同期">現在</button>
+</div>
+
+    <div class="row">
+      <span class="lbl">速度</span>
+      <button class="btn speed active" type="button" data-speed="0.5">x0.5</button>
+      <button class="btn speed" type="button" data-speed="1">x1</button>
+      <button class="btn speed" type="button" data-speed="2">x2</button>
+      <button class="btn speed" type="button" data-speed="5">x5</button>
+      <button class="btn speed" type="button" data-speed="10">x10</button>
+      <button class="btn speed" type="button" data-speed="30">x30</button>
+      <button class="btn speed" type="button" data-speed="60">x60</button>
+
+      <span class="spacer"></span>
+
+      <span class="lbl">ダイヤ</span>
+      <button class="btn" id="btnWeekday" type="button">平日</button>
+      <button class="btn" id="btnHoliday" type="button">土日祝</button>
+    </div>
+  </section>
+
+  <main class="stage">
+    <div class="canvasWrap">
+      <div class="trackTitle">在線</div>
+      <canvas id="cvMain" width="1600" height="640"></canvas>
+
+      <!-- 境界線 -->
+      <div class="separator"></div>
+
+      <!-- 支線（高知駅前〜桟橋通五丁目） -->
+      <div class="branchBox">
+        <div class="branchTitle">支線（高知駅前〜桟橋通五丁目）</div>
+        <canvas id="cvBranch" width="1600" height="220"></canvas>
+      </div>
+    </div>
+
+    <footer class="legend" id="legend">
+      <!-- JSで自動生成 -->
+    </footer>
+  </main>
+
+  <!-- Modal: major stops -->
+  <div class="modalBack" id="modalBack" hidden></div>
+  <div class="modal" id="modal" hidden>
+    <div class="modalHead">
+      <div id="modalTitle" class="modalTitle">列車詳細</div>
+      <button id="modalClose" class="btn" type="button">閉じる</button>
+    </div>
+    <div id="modalBody" class="modalBody"></div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
